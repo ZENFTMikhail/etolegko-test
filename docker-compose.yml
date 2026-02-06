@@ -1,0 +1,89 @@
+services:
+  # MongoDB - основное хранилище (через Mongoose)
+  mongodb:
+    image: mongo:latest
+    container_name: test-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE}
+
+  # ClickHouse для аналитики
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: test-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123" 
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # Redis для кэша
+  redis:
+    image: redis:alpine
+    container_name: test-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Backend Nest
+  backend:
+    build:
+      context: ./Backend-test
+      dockerfile: Dockerfile
+    container_name: test-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+      - clickhouse
+      - redis
+    env_file:
+      - .env 
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - MONGODB_URI=${MONGO_URI}
+      - PORT=3001
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - REDIS_URL=redis://redis:6379
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./frontend-test
+      dockerfile: Dockerfile
+    container_name: test-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./frontend-test:/usr/src/app
+      - /usr/src/app/node_modules
+    env_file:
+      - .env   
+    environment:
+      - REACT_APP_API_URL=${REACT_API}
+    depends_on:
+      - backend
+
+volumes:
+  mongodb_data:
+  clickhouse_data:
+  redis_data:
