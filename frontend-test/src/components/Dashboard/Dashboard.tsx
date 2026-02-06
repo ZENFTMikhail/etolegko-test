@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Container,
   Box,
@@ -7,11 +8,19 @@ import {
   Alert,
   CircularProgress,
   Chip,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Slider,
+  Snackbar,
 } from "@mui/material";
-import { Refresh } from "@mui/icons-material";
+import { Refresh, Add, Settings } from "@mui/icons-material";
 import { useAuth } from "../../hooks/useAuth";
 import { DataTable, type UserData } from "../DataTable/DataTable";
 import { useAnalytics } from "../../hooks/useAnalytics";
+import { ordersService } from "../../api/orders.service";
 import type { MRT_Row } from "material-react-table";
 
 const Dashboard = () => {
@@ -26,6 +35,31 @@ const Dashboard = () => {
     refreshData,
   } = useAnalytics();
 
+  // Состояния для модалок
+  const [createOrderModalOpen, setCreateOrderModalOpen] = useState(false);
+  const [generateOrdersModalOpen, setGenerateOrdersModalOpen] = useState(false);
+
+  // Состояния для формы создания заказа
+  const [orderAmount, setOrderAmount] = useState<number>(1000);
+  const [promoCode, setPromoCode] = useState<string>("");
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
+  // Состояния для генерации тестовых заказов
+  const [testOrdersCount, setTestOrdersCount] = useState<number>(5);
+  const [isGeneratingOrders, setIsGeneratingOrders] = useState(false);
+
+  // Уведомления
+  const [notification, setNotification] = useState<{
+    open: boolean;
+    message: string;
+    severity: "success" | "error" | "info";
+  }>({
+    open: false,
+    message: "",
+    severity: "info",
+  });
+
+  // Преобразуем данные аналитики в формат для таблицы
   const tableData: UserData[] = analyticsData.map((item) => ({
     id: item.user_id,
     name: item.name,
@@ -42,31 +76,6 @@ const Dashboard = () => {
     last_order_date: item.last_order_date,
   }));
 
-  const handleEdit = (row: MRT_Row<UserData>) => {
-    console.log("Редактировать пользователя:", {
-      id: row.original.id,
-      name: row.original.name,
-      email: row.original.email,
-      fullData: row.original,
-    });
-  };
-
-  const handleDelete = (row: MRT_Row<UserData>) => {
-    const user = row.original;
-
-    if (
-      window.confirm(
-        `Вы уверены, что хотите удалить пользователя "${user.name}"?`,
-      )
-    ) {
-      console.log("Удаление пользователя:", {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      });
-      alert(`Пользователь "${user.name}" будет удален (в реальном приложении)`);
-    }
-  };
   // Функция для форматирования валюты
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ru-RU", {
@@ -102,8 +111,130 @@ const Dashboard = () => {
         : 0,
   };
 
+  const handleEdit = (row: MRT_Row<UserData>): void => {
+    const user = row.original;
+    console.log("Редактировать пользователя:", {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    });
+  };
+
+  const handleDelete = (row: MRT_Row<UserData>): void => {
+    const user = row.original;
+
+    const confirmMessage =
+      user.total_orders && user.total_orders > 0
+        ? `Внимание! У пользователя ${user.name} есть ${user.total_orders} заказов. Удалить пользователя и все его данные?`
+        : `Удалить пользователя ${user.name}?`;
+
+    if (window.confirm(confirmMessage)) {
+      console.log("Удаление пользователя:", {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        orders: user.total_orders,
+        totalAmount: user.total_amount,
+      });
+
+      alert(`Функция удаления пользователя "${user.name}" в разработке`);
+    }
+  };
+
+  // Функция генерации тестовых заказов
+  const handleGenerateTestOrders = async () => {
+    setIsGeneratingOrders(true);
+    try {
+      const response = await ordersService.generateTestOrders({
+        count: testOrdersCount,
+      });
+      console.log(response);
+
+      showNotification(
+        "success",
+        `Сгенерировано ${testOrdersCount} тестовых заказов`,
+      );
+      setGenerateOrdersModalOpen(false);
+
+      // Обновляем данные после генерации
+      setTimeout(() => {
+        refreshData();
+      }, 1000);
+    } catch (err) {
+      console.log("Ошибка генерации заказов:", err);
+    } finally {
+      setIsGeneratingOrders(false);
+    }
+  };
+
+  // Функция создания заказа
+  const handleCreateOrder = async () => {
+    if (orderAmount < 1) {
+      showNotification("error", "Сумма заказа должна быть положительной");
+      return;
+    }
+
+    setIsCreatingOrder(true);
+    try {
+      const response = await ordersService.createOrder({
+        amount: orderAmount,
+        promoCode: promoCode || undefined,
+      });
+      console.log(response)
+
+      showNotification("success", "Заказ успешно создан");
+      setCreateOrderModalOpen(false);
+      setOrderAmount(1000);
+      setPromoCode("");
+
+      // Обновляем данные после создания заказа
+      setTimeout(() => {
+        refreshData();
+      }, 1000);
+    } catch (err) {
+      console.log("Ошибка создания заказа:", err);
+    } finally {
+      setIsCreatingOrder(false);
+    }
+  };
+
+  // Показать уведомление
+  const showNotification = (
+    severity: "success" | "error" | "info",
+    message: string,
+  ) => {
+    setNotification({
+      open: true,
+      message,
+      severity,
+    });
+  };
+
+  // Закрыть уведомление
+  const handleCloseNotification = () => {
+    setNotification((prev) => ({ ...prev, open: false }));
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* Уведомления */}
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={6000}
+        onClose={handleCloseNotification}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+      >
+        <Alert
+          onClose={handleCloseNotification}
+          severity={notification.severity}
+          sx={{ width: "100%" }}
+        >
+          {notification.message}
+        </Alert>
+      </Snackbar>
+
       {/* Заголовок */}
       <Box sx={{ mb: 4 }}>
         <Paper elevation={3} sx={{ p: 3, borderRadius: 3 }}>
@@ -312,19 +443,27 @@ const Dashboard = () => {
         <Box sx={{ flex: 1 }}>
           <Paper elevation={3} sx={{ p: 3, borderRadius: 3, height: "100%" }}>
             <Typography variant="h6" gutterBottom>
-              Быстрые действия
+              Управление заказами
             </Typography>
             <Box
               sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 1 }}
             >
-              <Button variant="outlined" fullWidth>
-                Добавить пользователя
+              <Button
+                variant="contained"
+                fullWidth
+                startIcon={<Add />}
+                onClick={() => setCreateOrderModalOpen(true)}
+              >
+                Создать заказ
               </Button>
-              <Button variant="outlined" fullWidth>
-                Настройки системы
-              </Button>
-              <Button variant="outlined" fullWidth>
-                Отчеты
+
+              <Button
+                variant="outlined"
+                fullWidth
+                startIcon={<Settings />}
+                onClick={() => setGenerateOrdersModalOpen(true)}
+              >
+                Сгенерировать тестовые заказы
               </Button>
             </Box>
           </Paper>
@@ -356,6 +495,134 @@ const Dashboard = () => {
           </Paper>
         </Box>
       </Box>
+
+      {/* Модалка создания заказа */}
+      <Dialog
+        open={createOrderModalOpen}
+        onClose={() => !isCreatingOrder && setCreateOrderModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Создать новый заказ</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <TextField
+              fullWidth
+              label="Сумма заказа (руб)"
+              type="number"
+              value={orderAmount}
+              onChange={(e) => setOrderAmount(Number(e.target.value))}
+              margin="normal"
+              InputProps={{ inputProps: { min: 1 } }}
+            />
+
+            <TextField
+              fullWidth
+              label="Промокод (опционально)"
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value)}
+              margin="normal"
+              placeholder="SUMMER2024"
+            />
+
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Заказ будет создан для текущего пользователя
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setCreateOrderModalOpen(false)}
+            disabled={isCreatingOrder}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateOrder}
+            disabled={isCreatingOrder || orderAmount < 1}
+          >
+            {isCreatingOrder ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                Создание...
+              </>
+            ) : (
+              "Создать заказ"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Модалка генерации тестовых заказов */}
+      <Dialog
+        open={generateOrdersModalOpen}
+        onClose={() => !isGeneratingOrders && setGenerateOrdersModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Генерация тестовых заказов</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Typography gutterBottom>
+              Количество заказов для генерации:
+            </Typography>
+
+            <Box sx={{ px: 2, py: 3 }}>
+              <Slider
+                value={testOrdersCount}
+                onChange={(_, value) => setTestOrdersCount(value as number)}
+                min={1}
+                max={50}
+                step={1}
+                marks={[
+                  { value: 1, label: "1" },
+                  { value: 10, label: "10" },
+                  { value: 25, label: "25" },
+                  { value: 50, label: "50" },
+                ]}
+                valueLabelDisplay="auto"
+              />
+            </Box>
+
+            <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+              <Chip
+                label={`${testOrdersCount} заказов`}
+                color="primary"
+                variant="outlined"
+              />
+            </Box>
+
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Будет сгенерировано {testOrdersCount} тестовых заказов для
+              пользователя
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setGenerateOrdersModalOpen(false)}
+            disabled={isGeneratingOrders}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleGenerateTestOrders}
+            disabled={isGeneratingOrders}
+          >
+            {isGeneratingOrders ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                Генерация...
+              </>
+            ) : (
+              "Сгенерировать"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
